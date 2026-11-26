@@ -29,12 +29,25 @@ export async function runAction(
   key: string,
   id: number,
   action: string,
+  params: Record<string, unknown> = {},
 ): Promise<ActionResult> {
   const response = await request(`/api/${key}/${id}/actions`, {
     method: 'POST',
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, ...params }),
   })
   return await response.json()
+}
+
+/** 继续办理：读取服务端核对出的原签收与重发资格详情。 */
+export async function continueReceipt(id: number): Promise<Record<string, any>> {
+  const response = await request(`/api/dist_receipt/${id}/continue`)
+  if (!response.ok) throw new Error('申请详情读取失败')
+  return await response.json()
+}
+
+/** 分发任务用回收记录核对实际送达。 */
+export async function reconcileTask(id: number): Promise<ActionResult> {
+  return runAction('dist_task', id, '核对实际送达')
 }
 
 export async function downloadEntries(

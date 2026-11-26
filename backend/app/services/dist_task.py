@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.base import BaseModuleService
+from app.services import dist_flow as flow
 from app.store import store
 
 
@@ -21,6 +22,40 @@ class DistTaskService(BaseModuleService):
     STATUS_ORDER = ["排队中", "分发中", "已送达", "分发失败"]
     ACTION_RULES = {"开始分发": "分发中", "重试分发": "分发失败"}
     NEGATIVE_ACTIONS = []
+
+    CLAIM_ACTIONS = {"领取", "领取补寄", "领取获准条目", "领取实际获准条目", "claim"}
+    DELIVER_ACTIONS = {"确认送达", "确认交付", "生成交付回执", "送达确认", "deliver"}
+    RECONCILE_ACTIONS = {"核对实际送达", "核对送达", "用回收记录核对", "核对回收记录", "对账"}
+
+    def dispatch_action(self, entry_id: int, action: str,
+                        params: dict | None = None) -> dict:
+        params = params or {}
+        entry = store.find(self.MODULE, entry_id)
+        if entry is None:
+            return {"ok": False, "message": f"分发批次 {entry_id} 不存在"}
+
+        if action in self.CLAIM_ACTIONS:
+            return flow.claim_approved_items(entry_id)
+
+        if action in self.DELIVER_ACTIONS:
+            if entry.get("补寄"):
+                return flow.confirm_replacement_delivery(entry_id)
+            result = self.confirm_delivery(entry_id)
+            result["entry"] = store.find(self.MODULE, entry_id)
+            return result
+
+        if action in self.RECONCILE_ACTIONS:
+            return flow.reconcile_task_with_receipts(entry_id)
+
+        # 「开始分发 / 重试分发」及其余动作保持基类 ACTION_RULES 的通用
+        # 状态流转契约（不在此用订阅方校验拦截示例数据上的常规点击）。
+        moved, message = self.run_action(entry_id, action)
+        if action == "开始分发" and moved is not None:
+            # 尽力补充领域分发信息，但不改变通用动作成功与否
+            extra = self.dispatch_batch(entry_id)
+            if extra.get("ok"):
+                message = "分发已开始"
+        return {"ok": moved is not None, "message": message, "entry": moved or entry}
 
     # ---- 业务扩展：版本分发与回执回收 ----
 
@@ -39,26 +74,35 @@ class DistTaskService(BaseModuleService):
         return {"ok": True, "subscriber": subscriber, "scope": entry.get("记录范围")}
 
     def confirm_delivery(self, entry_id: int) -> dict[str, Any]:
-        """确认送达并向回执中心登记已回收回执。"""
+        """确认送达并向回执中心登记已回收回执（同一批次幂等，不重复登记）。"""
         entry = store.find(self.MODULE, entry_id)
         if entry is None or entry.get("status") != "分发中":
             return {"ok": False, "message": "批次不在分发中状态"}
+        idem = f"normal-delivery:{entry_id}"
+        existed = next((r for r in store.rows("dist_receipt")
+                        if r.get("幂等键") == idem), None)
         entry["status"] = "已送达"
         entry["分发状态"] = "已送达"
         entry["回执状态"] = "已回收"
         entry["pending"] = False
+        entry["实际送达时间"] = datetime.now(timezone.utc).isoformat()
+        if existed is not None:
+            return {"ok": True, "receipt_id": existed.get("id"), "duplicate": True,
+                    "message": "交付回执已存在，未重复登记"}
         receipts = store.rows("dist_receipt")
         receipt_id = max((int(r.get("id", 0)) for r in receipts), default=0) + 1
         receipts.append({
             "id": receipt_id,
             "回执编号": f"rc-{entry_id}-{receipt_id}",
             "分发批次": entry.get("分发批次", ""),
+            "分发编号": entry.get("分发编号") or entry.get("分发批次", ""),
             "订阅方": entry.get("订阅方", ""),
             "回执状态": "已回收",
             "差异说明": "",
             "status": "已回收",
             "pending": False,
             "abnormal": False,
+            "幂等键": idem,
         })
         return {"ok": True, "receipt_id": receipt_id}
 

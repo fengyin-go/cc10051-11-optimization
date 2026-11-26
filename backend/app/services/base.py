@@ -26,7 +26,9 @@ class BaseModuleService:
     ) -> tuple[list[dict[str, Any]], int]:
         rows = list(store.rows(self.MODULE))
         for field, expected in (filters or {}).items():
-            if field in self.LIST_FIELDS:
+            # 既支持 LIST_FIELDS 内字段，也支持数据行实际携带的扩展键
+            known = field in self.LIST_FIELDS or any(field in row for row in rows)
+            if known:
                 rows = [
                     row for row in rows
                     if expected.casefold() in str(row.get(field, "")).casefold()
@@ -70,6 +72,16 @@ class BaseModuleService:
         entry["pending"] = target != self.STATUS_ORDER[-1]
         entry["abnormal"] = action in self.NEGATIVE_ACTIONS
         return entry, f"{self.ENTITY}已{action}"
+
+    def dispatch_action(
+        self, entry_id: int, action: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """富动作入口：路由层把完整 payload 透传给领域服务。
+
+        默认实现退回到两参的 ``run_action``，新流程在子类里覆盖本方法。
+        """
+        entry, message = self.run_action(entry_id, action)
+        return {"ok": entry is not None, "message": message, "entry": entry}
 
     def domain_snapshot(self) -> dict[str, Any]:
         """输出模块级数据质量快照，供跨模块消费和题位源码锚点使用。"""

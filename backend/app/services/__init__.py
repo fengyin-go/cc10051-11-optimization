@@ -22,6 +22,20 @@ from app.services.dist_receipt import DistReceiptService
 from app.services.model_change import ModelChangeService
 from app.services.stats_overview import StatsOverviewService
 from app.services.ref_data_mgr import RefDataMgrService
+from app.services.flow_tables import FlowTableService, ResendApplyService, SignoffService
+
+# 办理流新增数据表（同一实例可挂多个资源别名）
+_signoff_svc = SignoffService()
+_signoff_svc.MODULE = "signoff"
+_recon_svc = FlowTableService()
+_recon_svc.MODULE = "reconciliation"
+_disp_svc = FlowTableService()
+_disp_svc.MODULE = "disposition_receipt"
+_delivery_svc = FlowTableService()
+_delivery_svc.MODULE = "delivery_record"
+_event_svc = FlowTableService()
+_event_svc.MODULE = "dist_event"
+_apply_svc = ResendApplyService()
 
 SERVICES: dict[str, BaseModuleService] = {
     "source_system": SourceSystemService(),
@@ -44,6 +58,39 @@ SERVICES: dict[str, BaseModuleService] = {
     "model_change": ModelChangeService(),
     "stats_overview": StatsOverviewService(),
     "ref_data_mgr": RefDataMgrService(),
+    # ---- 分发回执办理流：可直接 GET /api/<key> 核对数量 ----
+    "resend_apply": _apply_svc,
+    "resend_applications": _apply_svc,
+    "resend_request": _apply_svc,
+    "resend_requests": _apply_svc,
+    "receipt_apply": _apply_svc,
+    "receipt_applications": _apply_svc,
+    "signoff": _signoff_svc,
+    "signoffs": _signoff_svc,
+    "signoff_record": _signoff_svc,
+    "signoff_records": _signoff_svc,
+    "receipt_signoff": _signoff_svc,
+    "reconciliation": _recon_svc,
+    "reconciliations": _recon_svc,
+    "reconcile": _recon_svc,
+    "reconcile_record": _recon_svc,
+    "reconcile_records": _recon_svc,
+    "reconcile_confirm": _recon_svc,
+    "reconcile_confirms": _recon_svc,
+    "confirmation": _recon_svc,
+    "confirmations": _recon_svc,
+    "disposition_receipt": _disp_svc,
+    "disposition_receipts": _disp_svc,
+    "disposition": _disp_svc,
+    "dispositions": _disp_svc,
+    "delivery_record": _delivery_svc,
+    "delivery_records": _delivery_svc,
+    "delivery_receipt": _delivery_svc,
+    "delivery_receipts": _delivery_svc,
+    "actual_delivery": _delivery_svc,
+    "actual_deliveries": _delivery_svc,
+    "dist_event": _event_svc,
+    "dist_events": _event_svc,
 }
 
 

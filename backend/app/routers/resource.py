@@ -31,10 +31,13 @@ def list_entries(
     size: int = Query(default=20, ge=1, le=200),
 ) -> PageResult[dict]:
     service = require_service(module)
+    reserved = {"keyword", "status", "page", "size"}
+    # 除分页 / 关键字 / 状态外的查询参数都作为字段过滤透传，
+    # 是否真正生效由领域服务按数据行键裁决。
     filters = {
         key: value.strip()
         for key, value in request.query_params.items()
-        if key in service.LIST_FIELDS and value.strip()
+        if key not in reserved and value.strip()
     }
     items, total = service.list_entries(
         filters=filters, keyword=keyword, status=status, page=page, size=size)
@@ -49,10 +52,11 @@ def export_entries(
     status: str | None = Query(default=None),
 ) -> StreamingResponse:
     service = require_service(module)
+    reserved = {"keyword", "status", "page", "size"}
     filters = {
         key: value.strip()
         for key, value in request.query_params.items()
-        if key in service.LIST_FIELDS and value.strip()
+        if key not in reserved and value.strip()
     }
     items, _ = service.list_entries(
         filters=filters, keyword=keyword, status=status, page=1, size=1_000_000)
@@ -85,14 +89,30 @@ def get_entry(module: str, entry_id: int) -> dict[str, Any]:
 @router.post("/{module}", response_model=ActionResult)
 def create_entry(module: str, payload: EntryPayload) -> ActionResult:
     service = require_service(module)
-    entry, missing = service.create_entry(payload.values)
+    values = dict(payload.values or {})
+    # 兼容把字段直接平铺在 body 顶层的用例：合并进 values（不覆盖显式 values）
+    for key, value in (payload.model_extra or {}).items():
+        values.setdefault(key, value)
+    entry, missing = service.create_entry(values)
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
     return ActionResult(ok=True, message=f"{service.ENTITY}已登记", entry=entry)
 
 
-@router.post("/{module}/{entry_id}/actions", response_model=ActionResult)
-def run_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResult:
+@router.post("/{module}/{entry_id}/actions", response_model=None)
+def run_action(module: str, entry_id: int, payload: ActionPayload) -> dict[str, Any]:
     service = require_service(module)
-    entry, message = service.run_action(entry_id, payload.action.strip())
-    return ActionResult(ok=entry is not None, message=message, entry=entry)
+    params: dict[str, Any] = {}
+    if payload.values:
+        params.update(payload.values)
+    if payload.remark is not None:
+        params.setdefault("remark", payload.remark)
+    extra = payload.model_extra or {}
+    params.update({k: v for k, v in extra.items() if v is not None})
+    result = service.dispatch_action(entry_id, payload.action.strip(), params)
+    # 统一保证 ok / message / entry 三要素存在（entry 缺失时才回查，避免无谓副作用）
+    result.setdefault("ok", True)
+    result.setdefault("message", "")
+    if result.get("entry") is None:
+        result["entry"] = service.get_entry(entry_id)
+    return result

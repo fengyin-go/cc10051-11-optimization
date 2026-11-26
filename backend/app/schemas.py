@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T")
 
@@ -22,10 +22,17 @@ class ActionResult(BaseModel):
 
 
 class EntryPayload(BaseModel):
+    # 允许 {"values": {...}} 与把字段平铺在顶层两种登记写法
+    model_config = ConfigDict(extra="allow")
+
     values: dict[str, Any] = Field(default_factory=dict)
     remark: str | None = None
 
 
 class ActionPayload(BaseModel):
+    # 允许 {"action": "...", "异常编号": "..."} 这类扁平扩展参数
+    model_config = ConfigDict(extra="allow")
+
     action: str
     remark: str | None = None
+    values: dict[str, Any] = Field(default_factory=dict)

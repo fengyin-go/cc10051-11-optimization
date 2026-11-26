@@ -10,13 +10,19 @@ from app.seed import SEED_ROWS
 
 
 class Store:
+    # 办理流内部表：可通过 /api/<table> 核对，但不计入业务模块健康检查 / 概览
+    HIDDEN_TABLES = {
+        "signoff", "resend_apply", "reconciliation", "disposition_receipt",
+        "delivery_record", "dist_event",
+    }
+
     def __init__(self) -> None:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
 
     def module_names(self) -> list[str]:
-        return sorted(self._tables)
+        return sorted(name for name in self._tables if name not in self.HIDDEN_TABLES)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])
